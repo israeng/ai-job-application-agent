@@ -1,6 +1,6 @@
 # AI Job Application Agent
 
-An autonomous AI agent that analyzes a candidate's CV end to end. The user's only interaction is uploading a PDF — everything after that, including profile extraction, ATS scoring, career-path analysis, skill-gap detection, interview preparation, report generation, and improved-CV generation, runs automatically.
+An autonomous AI agent that analyzes a candidate's CV end to end. The user's only interaction is uploading a PDF — everything after that, including profile extraction, ATS scoring, career-path analysis, skill-gap detection, interview preparation, report generation, and improved CV generation, runs automatically.
 
 This is deliberately **not a chatbot**. There is no conversation loop or turn-by-turn Q&A. A fixed orchestrator executes a sequence of specialized reasoning and processing steps while threading a single shared `AgentState` object through the pipeline.
 
@@ -222,4 +222,3 @@ The system uses:
 ## Project Status
 
 Functional prototype developed as an **AI Agent Engineering project**, demonstrating autonomous orchestration, structured LLM integration, deterministic processing, and production-oriented software organization.
-
