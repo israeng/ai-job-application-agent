@@ -1,132 +1,225 @@
 # AI Job Application Agent
 
-An autonomous AI agent that analyzes a candidate's CV end to end. The user's only
-interaction is uploading a PDF — everything after that (profile extraction, ATS
-scoring, career-path analysis, skill-gap detection, interview prep, report and
-improved-CV generation) runs without further input.
+An autonomous AI agent that analyzes a candidate's CV end to end. The user's only interaction is uploading a PDF — everything after that, including profile extraction, ATS scoring, career-path analysis, skill-gap detection, interview preparation, report generation, and improved-CV generation, runs automatically.
 
-This is deliberately **not a chatbot**. There is no conversation loop and no
-turn-by-turn Q&A — a fixed orchestrator executes a sequence of specialized
-reasoning and processing steps, threading a single shared state object through
-all of them.
+This is deliberately **not a chatbot**. There is no conversation loop or turn-by-turn Q&A. A fixed orchestrator executes a sequence of specialized reasoning and processing steps while threading a single shared `AgentState` object through the pipeline.
 
-## Why this is an agent, not just an AI-powered app
+## Why This Is an Agent, Not Just an AI-Powered App
 
-- **Sequential autonomous execution** — 7 steps run in a fixed order with zero
-  user input in between.
-- **Shared state, accumulated context** — each step reads what prior steps
-  produced (`AgentState`) and adds to it; nothing is re-derived from scratch.
-- **Reasoning where it's needed, determinism where it isn't** — only 4 of the 7
-  steps call Claude (profile interpretation, career analysis, narrative
-  generation, CV rewriting). ATS scoring, language detection, and PDF
-  extraction/rendering are pure Python — deterministic, explainable, and free.
-- **Graceful autonomous failure handling** — if any step fails, the pipeline
-  stops itself, preserves everything computed so far, and reports exactly
-  where and why, without crashing or asking the user to intervene mid-run.
+* **Sequential autonomous execution** — 7 steps run in a fixed order with no user input between steps.
+* **Shared state and accumulated context** — each step reads the outputs produced by previous steps through `AgentState`.
+* **Reasoning where needed, determinism where possible** — only 4 of the 7 steps use Gemini for reasoning. ATS scoring, language detection, PDF extraction, and rendering are handled deterministically with Python.
+* **Structured AI outputs** — Gemini responses are constrained to Pydantic schemas, ensuring validated and predictable outputs.
+* **Graceful failure handling** — if a pipeline step fails, execution stops safely, preserves completed results, and reports the exact failure point.
 
 ## Pipeline
 
-| # | Step | Engine | Produces |
-|---|------|--------|----------|
-| 1 | Ingest & preprocess | Python | Clean text, detected language (Arabic/English) |
-| 2 | Profile extraction | Claude (1/4) | Structured candidate profile |
-| 3 | ATS scoring | Python | Deterministic, weighted, explainable ATS score |
-| 4 | Main analysis | Claude (2/4) | Career path, skill gaps, CV suggestions |
-| 5 | Interview & report content | Claude (3/4) | Interview questions, report narrative |
-| 6 | Improved CV generation | Claude (4/4) | ATS-friendly rewritten CV (facts preserved) |
-| 7 | Render PDFs | Python | Final report + improved CV, one shared design |
+| # | Step                       | Engine | Produces                                    |
+| - | -------------------------- | ------ | ------------------------------------------- |
+| 1 | Ingest & Preprocess        | Python | Clean text, detected language               |
+| 2 | Profile Extraction         | Gemini | Structured candidate profile                |
+| 3 | ATS Scoring                | Python | Deterministic, weighted ATS score           |
+| 4 | Main Analysis              | Gemini | Career path, skill gaps, CV recommendations |
+| 5 | Interview & Report Content | Gemini | Interview questions, report narrative       |
+| 6 | Improved CV Generation     | Gemini | ATS-friendly rewritten CV                   |
+| 7 | Render PDFs                | Python | Final report + improved CV                  |
 
-Only 4 Claude calls total. From step 2 onward, only structured fields are
-sent to the model — raw CV text is never resent, keeping token usage bounded
-regardless of CV length.
+**Only 4 Gemini calls are made per application.**
 
-## Project structure
+From step 2 onward, only structured fields are sent to the model rather than repeatedly sending the raw CV text. This keeps token usage bounded and makes the workflow more efficient.
 
-```
+## Project Structure
+
+```text
 ai-job-application-agent/
-├── app.py                  # Streamlit entry point (the only UI)
-├── config.py                # Models, weights, thresholds, paths
+├── app.py                       # Streamlit entry point
+├── config.py                    # Models, weights, thresholds, paths
 ├── agent/
-│   ├── orchestrator.py      # Defines pipeline order, runs all 7 steps
-│   ├── state.py              # AgentState — shared context object
-│   ├── schemas.py            # Pydantic schemas for every structured output
-│   ├── llm_client.py          # Gemini API wrapper, forced structured output
+│   ├── orchestrator.py          # Executes the 7-step pipeline
+│   ├── state.py                 # Shared AgentState object
+│   ├── schemas.py               # Pydantic schemas
+│   ├── llm_client.py            # Gemini API wrapper
 │   ├── exceptions.py
-│   ├── prompts/               # One prompt module per Claude call
-│   └── steps/                  # One PipelineStep per pipeline stage
+│   ├── prompts/                 # Prompt modules
+│   └── steps/                   # Pipeline stages
 ├── analysis/
-│   ├── language_detector.py    # Arabic/English detection (Unicode heuristic)
-│   └── ats_scoring.py          # Deterministic ATS rubric engine
+│   ├── language_detector.py     # Arabic/English detection
+│   └── ats_scoring.py           # Deterministic ATS engine
 ├── utils/
-│   ├── pdf_parser.py            # Text + layout extraction (pdfplumber)
-│   ├── pdf_theme.py              # Shared design system (colors, fonts, layout)
-│   ├── report_renderer.py         # Analysis report PDF (ReportLab)
-│   └── cv_renderer.py              # Improved CV PDF (ReportLab, same theme)
-├── ui/                                # Streamlit components + styling
-└── tests/sample_cvs/                   # Sample CV used for testing
+│   ├── pdf_parser.py            # PDF text extraction
+│   ├── pdf_theme.py             # Shared PDF design system
+│   ├── report_renderer.py       # Analysis report generation
+│   └── cv_renderer.py           # Improved CV generation
+├── ui/                          # Streamlit components and styling
+├── templates/
+├── tests/
+│   └── sample_cvs/              # Sample CV for testing
+├── .env.example
+├── requirements.txt
+└── README.md
 ```
 
 ## Setup
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env        # add your GEMINI_API_KEY to .env
+cp .env.example .env
 streamlit run app.py
 ```
 
-Get a key from [Google AI Studio](https://aistudio.google.com/apikey) and put
-it in `.env` as `GEMINI_API_KEY=...`. The default model is `gemini-3.6-flash`
-(configurable via a `GEMINI_MODEL` env var) — Google's current GA workhorse
-model for agentic/structured-output tasks.
+Add your Gemini API key to `.env`:
 
-Requires Python 3.11+. PDF generation uses ReportLab only — no system-level
-dependencies (Poppler, Pango/Cairo, etc.), so it runs out of the box on
-Windows, macOS, and Linux alike.
+```env
+GEMINI_API_KEY=your_api_key_here
+```
 
-## LLM provider
+Get an API key from [Google AI Studio](https://aistudio.google.com/apikey).
 
-This project uses the [Google Gen AI SDK](https://github.com/googleapis/python-genai)
-(`google-genai`) to call Gemini. Every Claude/Gemini call goes through
-`agent/llm_client.py`, which forces a JSON response constrained to a Pydantic
-schema (`response_mime_type="application/json"` + `response_schema=...`), so
-every pipeline step gets a validated, typed object back — never free-form
-text to parse. Retries (via `tenacity`) apply only to transient failures:
-Gemini server errors (5xx) and rate limiting (429); other 4xx errors fail
-fast since retrying them can't succeed.
+The application requires **Python 3.11+**.
 
-The `LLMClient` class exposes one method, `call_structured(...)`, used
-identically by all four Claude-labeled reasoning steps in the pipeline — the
-step names still read "Claude N/4" as generic pipeline position labels and
-were intentionally left unchanged, since renaming them has no effect on
-behavior and only the LLM client needed to change providers.
+## LLM Provider
 
-## Key design decisions
+This project uses the **Google Gen AI SDK (`google-genai`)** to interact with Gemini.
 
-- **ATS score is never LLM-generated.** It's computed from five measurable,
-  weighted criteria (section completeness, skills coverage, structure/
-  formatting, keyword relevance, readability), each with its own machine-
-  computed explanation. Claude only narrates the result in the final report —
-  it cannot contradict or recompute it.
-- **Language handled automatically.** Arabic vs. English is detected via a
-  Unicode-range heuristic (more reliable on CVs than statistical detectors,
-  since names/emails are often Latin-script even in Arabic CVs), with
-  `langdetect` as a fallback. No manual language selection.
-- **Improved CV never invents facts.** The rewrite prompt is explicitly given
-  only the candidate's real profile — skill *gaps* are excluded from its
-  context so the model can't "add" skills the candidate doesn't have.
-- **One visual identity.** The analysis report and improved CV share a single
-  ReportLab theme module (colors, typography, spacing, page decoration), so
-  both PDFs look like one coherent product.
+All LLM interactions are centralized through:
 
-## Bootcamp requirement mapping
+```text
+agent/llm_client.py
+```
 
-- **Real-world problem:** job seekers don't get objective, actionable feedback
-  on their CV before applying.
-- **Autonomous agent, not a chatbot:** see "Why this is an agent" above.
-- **Clear workflow, input → output:** one PDF upload → structured pipeline →
-  downloadable report + improved CV.
-- **AI reasoning and decision-making:** career-path recommendation, skill-gap
-  prioritization, and CV rewriting all require judgment, not lookup.
-- **Working prototype:** functional Streamlit app, tested end to end.
-- **Professional architecture:** modular steps/prompts/schemas, dependency-
-  injected LLM client, typed state, centralized config, structured logging.
+The client exposes a structured generation method that constrains Gemini responses to JSON schemas defined with Pydantic.
+
+This provides:
+
+* Typed and validated outputs
+* Consistent pipeline behavior
+* Reduced parsing complexity
+* Explicit contracts between AI reasoning steps
+* Retry handling for transient API failures
+
+The four Gemini-powered stages are:
+
+1. Profile extraction
+2. Main career analysis
+3. Interview and report generation
+4. Improved CV generation
+
+## Key Design Decisions
+
+### Deterministic ATS Scoring
+
+The ATS score is **never generated by the LLM**.
+
+It is calculated using five measurable criteria:
+
+* Section completeness
+* Skills coverage
+* Structure and formatting
+* Keyword relevance
+* Readability
+
+Each criterion produces a machine-computed explanation.
+
+Gemini may explain the results in the final report, but it does not calculate or modify the underlying ATS score.
+
+### Automatic Language Detection
+
+The system automatically detects whether the CV is primarily Arabic or English.
+
+A Unicode-range heuristic is used first, with `langdetect` as a fallback.
+
+No manual language selection is required.
+
+### Fact-Preserving CV Improvement
+
+The improved CV generation step is designed to avoid inventing candidate information.
+
+The model receives the candidate's verified profile, while skill gaps are excluded from the CV-generation context. This reduces the risk of adding unsupported skills or experience.
+
+### Shared Visual Identity
+
+The generated analysis report and improved CV use the same ReportLab theme.
+
+This centralizes:
+
+* Typography
+* Colors
+* Spacing
+* Layout
+* Page decoration
+
+The result is a consistent visual identity across generated documents.
+
+## Bootcamp Requirement Mapping
+
+### Real-World Problem
+
+Job seekers often lack objective and actionable feedback on their CV before applying for a position.
+
+### Autonomous AI Agent
+
+The system performs a complete multi-step workflow after a single PDF upload without requiring user interaction between stages.
+
+### Input → Processing → Output
+
+```text
+CV PDF
+  ↓
+Preprocessing
+  ↓
+Profile Extraction
+  ↓
+ATS Scoring
+  ↓
+Career & Skill Analysis
+  ↓
+Interview Preparation
+  ↓
+Improved CV Generation
+  ↓
+PDF Report + Improved CV
+```
+
+### AI Reasoning
+
+Gemini is used for tasks that require interpretation and judgment, including:
+
+* Candidate profile interpretation
+* Career-path recommendations
+* Skill-gap prioritization
+* Interview question generation
+* CV rewriting
+
+### Working Prototype
+
+The project includes a functional Streamlit interface and an end-to-end processing pipeline.
+
+### Professional Architecture
+
+The system uses:
+
+* Modular pipeline steps
+* Centralized prompts
+* Pydantic schemas
+* Typed shared state
+* Dependency-injected LLM client
+* Centralized configuration
+* Structured logging
+* Deterministic processing where appropriate
+
+## Technology Stack
+
+* **Python**
+* **Google Gemini**
+* **Google Gen AI SDK**
+* **Pydantic**
+* **Streamlit**
+* **ReportLab**
+* **pdfplumber**
+* **Tenacity**
+* **langdetect**
+
+## Project Status
+
+Functional prototype developed as an **AI Agent Engineering project**, demonstrating autonomous orchestration, structured LLM integration, deterministic processing, and production-oriented software organization.
+
